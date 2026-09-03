@@ -10,7 +10,7 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Session insights</title>
+  <title>Usage insights</title>
   <style>
     :root {
       color-scheme: light dark;

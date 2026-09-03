@@ -156,7 +156,7 @@ export class AgentMetadataStore {
     }
 }
 
-export class SessionStatsStore {
+export class UsageInsightsStore {
     constructor(copilotHome) {
         const sessionStorePath = join(copilotHome, "session-store.db");
         if (!existsSync(sessionStorePath)) {

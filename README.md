@@ -1,4 +1,4 @@
-# GitHub Copilot Session Insights
+# GitHub Copilot Usage Insights
 
 A GitHub Copilot extension canvas for inspecting local session usage:
 
@@ -30,10 +30,10 @@ https://github.com/davidkaya/github-copilot-usage-insights/tree/main
 Or clone it manually into your user extensions directory:
 
 ```powershell
-git clone https://github.com/davidkaya/github-copilot-usage-insights.git "$HOME\.copilot\extensions\session-stats"
+git clone https://github.com/davidkaya/github-copilot-usage-insights.git "$HOME\.copilot\extensions\github-copilot-usage-insights"
 ```
 
-Reload extensions, then ask Copilot to open the **Session insights** canvas.
+Reload extensions, then ask Copilot to open the **Usage insights** canvas.
 
 ## Canvas actions
 

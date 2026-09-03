@@ -2,13 +2,13 @@ import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createCanvas, CanvasError, joinSession } from "@github/copilot-sdk/extension";
-import { AgentMetadataStore, SessionStatsStore } from "./stats.mjs";
+import { AgentMetadataStore, UsageInsightsStore } from "./stats.mjs";
 import { renderDashboardHtml } from "./renderer.mjs";
 
 const RANGE_VALUES = ["24h", "7d", "30d", "all"];
 const servers = new Map();
 const copilotHome = process.env.COPILOT_HOME || join(homedir(), ".copilot");
-const statsStore = new SessionStatsStore(copilotHome);
+const statsStore = new UsageInsightsStore(copilotHome);
 const agentMetadata = new AgentMetadataStore(copilotHome);
 let session;
 
@@ -115,9 +115,9 @@ async function startServer(instanceId, defaults) {
     return { clients, server, url: `http://127.0.0.1:${port}/` };
 }
 
-const dashboardCanvas = createCanvas({
-    id: "session-stats",
-    displayName: "Session insights",
+const usageInsightsCanvas = createCanvas({
+    id: "usage-insights",
+    displayName: "Usage insights",
     description: "Inspect live token and AI-credit usage for the current session, its agents, and recent history.",
     inputSchema: {
         type: "object",
@@ -167,7 +167,7 @@ const dashboardCanvas = createCanvas({
             servers.set(ctx.instanceId, entry);
         }
         return {
-            title: "Session insights",
+            title: "Usage insights",
             status: "Live",
             url: entry.url,
         };
@@ -185,7 +185,7 @@ const dashboardCanvas = createCanvas({
     },
 });
 
-session = await joinSession({ canvases: [dashboardCanvas] });
+session = await joinSession({ canvases: [usageInsightsCanvas] });
 
 const initialEvents = await session.getEvents();
 agentMetadata.seed(session.sessionId, initialEvents);
