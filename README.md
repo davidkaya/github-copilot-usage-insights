@@ -7,7 +7,7 @@ A GitHub Copilot extension canvas for inspecting local session usage:
 - root-agent and per-sub-agent rollups
 - model-call counts and durations
 - recent and all-session aggregates
-- highest-cost local sessions with drill-down
+- highest-cost local sessions with direct links back into GitHub Copilot
 
 The interface follows the native GitHub Copilot Insights visual language and refreshes while the canvas is open.
 
@@ -17,6 +17,7 @@ All metrics are read locally from Copilot's session data. The extension:
 
 - binds its renderer to `127.0.0.1`
 - opens the local session databases read-only
+- opens selected history rows with the app-local `ghapp://sessions/<session-id>` protocol
 - does not send usage data to an external service
 
 ## Install
