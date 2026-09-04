@@ -57,8 +57,7 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
 
     button { font: inherit; }
 
-    button:focus-visible,
-    .session-button:focus-visible {
+    button:focus-visible {
       outline: 2px solid var(--color-focus-outline, var(--accent));
       outline-offset: 2px;
     }
@@ -196,7 +195,6 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
       background: transparent;
       color: inherit;
       text-align: left;
-      text-decoration: none;
       cursor: pointer;
     }
 
@@ -809,15 +807,20 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       }
 
       for (const item of range.topSessions) {
-        const link = element('a', 'session-button');
-        link.href = 'ghapp://sessions/' + encodeURIComponent(item.id);
-        link.title = 'Open ' + item.title + ' in GitHub Copilot';
+        const button = element('button', 'session-button');
+        button.type = 'button';
+        button.title = 'Inspect ' + item.title;
+        button.addEventListener('click', () => {
+          state.sessionId = item.id;
+          load();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
         const labels = document.createElement('span');
         labels.append(element('span', 'session-name', item.title));
         labels.append(element('span', 'session-meta', [item.repository, item.model, formatNumber(item.calls) + ' calls'].filter(Boolean).join(' · ')));
-        link.append(labels);
-        link.append(element('span', 'session-cost', formatCredits(item.aiCredits) + ' credits'));
-        list.append(link);
+        button.append(labels);
+        button.append(element('span', 'session-cost', formatCredits(item.aiCredits) + ' credits'));
+        list.append(button);
       }
     }
 
