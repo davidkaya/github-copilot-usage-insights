@@ -10,7 +10,7 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Usage insights</title>
+  <title>Usage Insights</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -507,7 +507,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <span class="summary-meta" id="sessionTitle">Loading session...</span>
       </div>
       <div class="header-actions">
-        <button class="button" id="backButton" type="button" hidden>
+        <button class="button" id="backButton" type="button" aria-label="Return to current session" hidden>
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M6.5 3.5 2 8l4.5 4.5M2.5 8H14" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -519,9 +519,11 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
     <section class="section" aria-labelledby="creditsHeading">
       <div class="section-head">
-        <button class="collapsible" id="chartToggle" type="button" aria-expanded="true">
-          <h2 id="creditsHeading"><span class="chevron">›</span>AI credits · <span id="chartCredits">—</span></h2>
-        </button>
+        <h2 id="creditsHeading">
+          <button class="collapsible" id="chartToggle" type="button" aria-expanded="true">
+            <span class="chevron" aria-hidden="true">›</span>AI credits · <span id="chartCredits">—</span>
+          </button>
+        </h2>
       </div>
       <div id="chartContent">
         <div class="chart" id="creditChart"></div>
@@ -538,7 +540,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <section class="section" aria-labelledby="agentUsageHeading">
       <div class="section-head">
         <h2 id="agentUsageHeading">Usage by agent</h2>
-        <div class="segmented" id="agentMetricControl" aria-label="Agent metric">
+        <div class="segmented" id="agentMetricControl" role="group" aria-label="Agent metric">
           <button type="button" data-metric="credits" aria-pressed="true">AI credits</button>
           <button type="button" data-metric="tokens" aria-pressed="false">Tokens</button>
         </div>
@@ -560,7 +562,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           <h2 id="historyHeading">Session history</h2>
           <p id="rangeLabel">Recent locally recorded usage</p>
         </div>
-        <div class="segmented" id="rangeControl" aria-label="History range"></div>
+        <div class="segmented" id="rangeControl" role="group" aria-label="History range"></div>
       </div>
       <div class="history-summary">
         <div class="history-stat"><strong id="rangeCredits">—</strong><span>AI credits</span></div>
@@ -618,6 +620,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       const seconds = Math.floor(ms / 1000);
       const minutes = Math.floor(seconds / 60);
       const hours = Math.floor(minutes / 60);
+      if (ms < 1000) return Math.max(1, Math.round(ms)) + 'ms';
       if (hours) return hours + 'h ' + (minutes % 60) + 'm';
       if (minutes) return minutes + 'm ' + (compact ? '' : (seconds % 60) + 's').trim();
       return Math.max(1, seconds) + 's';
@@ -648,6 +651,8 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       const calls = selected.timeline.calls;
       if (!calls.length) {
         host.append(element('div', 'empty', 'No credit activity has been recorded yet.'));
+        text('latestCallLabel', 'Latest model call');
+        text('latestCallDuration', '—');
         return;
       }
 
@@ -659,12 +664,13 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       const bottom = 18;
       const plotWidth = width - left - right;
       const plotHeight = height - top - bottom;
-      const total = Math.max(.001, calls.reduce((sum, call) => sum + call.aiCredits, 0));
+      const total = calls.reduce((sum, call) => sum + call.aiCredits, 0);
+      const scaleTotal = Math.max(total, Number.EPSILON);
       let cumulative = 0;
       const points = calls.map((call) => {
         cumulative += call.aiCredits;
         const x = left + (call.endedAtMs - selected.timeline.startedAtMs) / selected.timeline.durationMs * plotWidth;
-        const y = top + plotHeight - cumulative / total * plotHeight;
+        const y = top + plotHeight - cumulative / scaleTotal * plotHeight;
         return { x, y };
       });
 
@@ -719,17 +725,20 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       }
 
       const values = selected.agents.map((agent) => {
-        const tokens = agent.inputTokens + agent.outputTokens + agent.reasoningTokens;
+        const tokens = agent.inputTokens + agent.outputTokens;
         return { agent, value: state.agentMetric === 'credits' ? agent.aiCredits : tokens };
       });
-      const maximum = Math.max(...values.map((entry) => entry.value), 1);
+      const maximum = Math.max(...values.map((entry) => entry.value), Number.EPSILON);
 
       values.forEach((entry, index) => {
         const row = element('div', 'bar-row');
         const label = element('div', 'bar-label');
         const left = document.createElement('span');
         left.append(element('span', '', entry.agent.displayName));
-        left.append(element('span', 'agent-detail', entry.agent.models.join(', ') + ' · ' + entry.agent.calls + ' calls'));
+        left.append(element('span', 'agent-detail', [
+          entry.agent.models.join(', '),
+          entry.agent.calls + ' calls',
+        ].filter(Boolean).join(' · ')));
         label.append(left);
         label.append(element('span', '', state.agentMetric === 'credits'
           ? formatCredits(entry.value) + ' AI credits'
@@ -750,11 +759,12 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       const values = [
         { label: 'Input', value: totals.inputTokens, color: 1 },
         { label: 'Cache read', value: totals.cacheReadTokens, color: 2 },
+        { label: 'Cache write', value: totals.cacheWriteTokens, color: 0 },
         { label: 'Output', value: totals.outputTokens, color: 3 },
         { label: 'Reasoning', value: totals.reasoningTokens, color: 5 },
       ];
-      const maximum = Math.max(...values.map((entry) => entry.value), 1);
-      const total = values.reduce((sum, entry) => sum + entry.value, 0);
+      const maximum = Math.max(...values.map((entry) => entry.value), Number.EPSILON);
+      const total = totals.inputTokens + totals.outputTokens;
       text('tokenTotal', formatNumber(total) + ' total tokens');
 
       for (const entry of values) {
@@ -783,7 +793,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         button.addEventListener('click', () => {
           if (state.range !== range.id) {
             state.range = range.id;
-            if (bootstrap) render(bootstrap);
             load();
           }
         });
@@ -813,7 +822,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         button.addEventListener('click', () => {
           state.sessionId = item.id;
           load();
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          window.scrollTo({ top: 0 });
         });
         const labels = document.createElement('span');
         labels.append(element('span', 'session-name', item.title));
@@ -843,30 +852,43 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       renderHistory(data.range);
     }
 
+    let loadController;
+
     async function load() {
-      if (state.loading) return;
+      loadController?.abort();
+      const controller = new AbortController();
+      loadController = controller;
       state.loading = true;
       app.classList.add('loading');
       errorState.hidden = true;
       try {
-        const params = new URLSearchParams({ range: state.range });
+        const params = new URLSearchParams({
+          range: state.range,
+          token: initial.capabilityToken,
+        });
         if (state.sessionId) params.set('sessionId', state.sessionId);
-        const response = await fetch('/api/stats?' + params.toString(), { cache: 'no-store' });
+        const response = await fetch('/api/stats?' + params.toString(), {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to load session metrics.');
         render(data);
       } catch (error) {
+        if (controller.signal.aborted) return;
         errorState.textContent = error instanceof Error ? error.message : 'Unable to load session metrics.';
         errorState.hidden = false;
         text('liveStatus', 'Unavailable');
       } finally {
-        state.loading = false;
-        app.classList.remove('loading');
+        if (loadController === controller) {
+          state.loading = false;
+          app.classList.remove('loading');
+        }
       }
     }
 
     backButton.addEventListener('click', () => {
-      state.sessionId = '';
+      state.sessionId = state.latestData?.currentSessionId || '';
       load();
     });
 
@@ -886,7 +908,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       if (state.latestData) renderAgentBars(state.latestData.selected);
     });
 
-    const events = new EventSource('/events');
+    const events = new EventSource('/events?token=' + encodeURIComponent(initial.capabilityToken));
     let refreshTimer;
     events.addEventListener('refresh', () => {
       clearTimeout(refreshTimer);
@@ -896,7 +918,12 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       text('liveStatus', 'Reconnecting');
     };
 
-    load();
+    if (bootstrap) {
+      render(bootstrap);
+      app.classList.remove('loading');
+    } else {
+      load();
+    }
     setInterval(load, 5000);
   </script>
 </body>

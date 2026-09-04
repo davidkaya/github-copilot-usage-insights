@@ -1,23 +1,26 @@
-# GitHub Copilot Usage Insights
+# Usage Insights
 
-A GitHub Copilot extension canvas for inspecting local session usage:
+A GitHub Copilot canvas extension for inspecting local session usage:
 
-- AI credits and cumulative usage over time
-- input, output, reasoning, and cache-read tokens
+- current and historical AI-credit totals
+- input, output, reasoning, cache-read, and cache-write tokens
 - root-agent and per-sub-agent rollups
 - model-call counts and durations
 - recent and all-session aggregates
-- highest-cost local sessions with drill-down
+- highest-cost local sessions with in-canvas drill-down
 
-The interface follows the native GitHub Copilot Insights visual language and refreshes while the canvas is open.
+The interface follows GitHub Copilot's native visual language and refreshes while
+the canvas is open.
 
 ## Privacy
 
 All metrics are read locally from Copilot's session data. The extension:
 
 - binds its renderer to `127.0.0.1`
+- requires a per-instance capability token on every local HTTP and SSE route
 - opens the local session databases read-only
 - does not send usage data to an external service
+- keeps historical session drill-down inside the canvas
 
 ## Install
 
@@ -33,7 +36,7 @@ Or clone it manually into your user extensions directory:
 git clone https://github.com/davidkaya/github-copilot-usage-insights.git "$HOME\.copilot\extensions\github-copilot-usage-insights"
 ```
 
-Reload extensions, then ask Copilot to open the **Usage insights** canvas.
+Reload extensions, then ask Copilot to open the **Usage Insights** canvas.
 
 ## Canvas actions
 
@@ -63,11 +66,13 @@ Returns overall and per-agent metrics for one local session.
 
 ## Structure
 
-- `extension.mjs` — canvas declaration, loopback server, actions, and refresh events
-- `stats.mjs` — read-only SQLite aggregation and sub-agent metadata resolution
-- `renderer.mjs` — responsive, theme-aware HTML renderer
+- `extension.mjs` - canvas declaration, loopback server, actions, and refresh events
+- `stats.mjs` - read-only SQLite aggregation and sub-agent metadata resolution
+- `renderer.mjs` - responsive, theme-aware HTML renderer
 
-The extension intentionally has no `package.json`: `@github/copilot-sdk` is resolved by the Copilot extension runtime, and SQLite uses Node.js's built-in `node:sqlite` module.
+The extension intentionally has no `package.json`: `@github/copilot-sdk` is
+resolved by the Copilot extension runtime, and SQLite uses Node.js's built-in
+`node:sqlite` module.
 
 ## Requirements
 
@@ -77,4 +82,6 @@ The extension intentionally has no `package.json`: `@github/copilot-sdk` is reso
 
 ## Development
 
-Install or clone the repository as a user extension, edit the `.mjs` files, and reload extensions. Avoid writing to stdout from extension code because stdout is reserved for JSON-RPC.
+Install or clone the repository as a user extension, edit the `.mjs` files, and
+reload extensions. Avoid writing to stdout from extension code because stdout is
+reserved for JSON-RPC.

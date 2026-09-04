@@ -1,5 +1,5 @@
 import { createReadStream, existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 
@@ -40,8 +40,10 @@ function runtimeAggregate(metrics) {
         return undefined;
     }
 
+    const totalNanoAiu =
+        number(metrics.totalNanoAiu) || number(metrics.totalPremiumRequestCost) * BILLION;
     const aggregate = {
-        aiCredits: credits(metrics.totalNanoAiu),
+        aiCredits: credits(totalNanoAiu),
         apiDurationMs: number(metrics.totalApiDurationMs),
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
@@ -51,7 +53,7 @@ function runtimeAggregate(metrics) {
         reasoningTokens: 0,
         sessions: 1,
         subagents: 0,
-        totalNanoAiu: number(metrics.totalNanoAiu),
+        totalNanoAiu,
     };
 
     for (const metric of Object.values(metrics.modelMetrics || {})) {
@@ -131,7 +133,16 @@ export class AgentMetadataStore {
         }
 
         const map = new Map();
-        const eventPath = join(this.copilotHome, "session-state", sessionId, "events.jsonl");
+        const sessionStateRoot = resolve(this.copilotHome, "session-state");
+        const eventPath = resolve(sessionStateRoot, sessionId, "events.jsonl");
+        const relativeEventPath = relative(sessionStateRoot, eventPath);
+        if (
+            isAbsolute(relativeEventPath) ||
+            relativeEventPath === ".." ||
+            relativeEventPath.startsWith(`..${sep}`)
+        ) {
+            throw new Error("Invalid session ID.");
+        }
         if (existsSync(eventPath)) {
             const lines = createInterface({
                 crlfDelay: Infinity,
@@ -445,7 +456,7 @@ export class UsageInsightsStore {
                 : undefined;
         const selectedTotals = dbTotals.calls > 0 ? dbTotals : liveWindow || dbTotals;
         const agents = this.getSessionAgents(selectedSessionId, agentMetadata);
-        const selectedNanoAiu = selectedTotals.totalNanoAiu || dbTotals.totalNanoAiu;
+        const selectedNanoAiu = selectedTotals.totalNanoAiu;
         for (const agent of agents) {
             agent.share =
                 selectedNanoAiu > 0 ? Math.min(1, agent.totalNanoAiu / selectedNanoAiu) : 0;
