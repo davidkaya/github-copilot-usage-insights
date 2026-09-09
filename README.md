@@ -24,19 +24,15 @@ All metrics are read locally from Copilot's session data. The extension:
 
 ## Install
 
-In GitHub Copilot, use **Install extension from repository** with:
+After the plugin is approved for the Awesome Copilot marketplace, install it
+with:
 
 ```text
-https://github.com/davidkaya/github-copilot-usage-insights/tree/main
+copilot plugin install usage-insights@awesome-copilot
 ```
 
-Or clone it manually into your user extensions directory:
-
-```powershell
-git clone https://github.com/davidkaya/github-copilot-usage-insights.git "$HOME\.copilot\extensions\github-copilot-usage-insights"
-```
-
-Reload extensions, then ask Copilot to open the **Usage Insights** canvas.
+The package follows the Agent Plugins v1 layout and exposes the **Usage
+Insights** canvas extension through `com.github.copilot`.
 
 ## Canvas actions
 
@@ -66,11 +62,12 @@ Returns overall and per-agent metrics for one local session.
 
 ## Structure
 
-- `extension.mjs` - canvas declaration, loopback server, actions, and refresh events
-- `stats.mjs` - read-only SQLite aggregation and sub-agent metadata resolution
-- `renderer.mjs` - responsive, theme-aware HTML renderer
+- `plugin.json` - Agent Plugins v1 metadata and canvas logo
+- `com.github.copilot/extensions/usage-insights/extension.mjs` - canvas declaration, loopback server, actions, and refresh events
+- `com.github.copilot/extensions/usage-insights/stats.mjs` - read-only SQLite aggregation and sub-agent metadata resolution
+- `com.github.copilot/extensions/usage-insights/renderer.mjs` - responsive, theme-aware HTML renderer
 
-The extension intentionally has no `package.json`: `@github/copilot-sdk` is
+The plugin intentionally has no `package.json`: `@github/copilot-sdk` is
 resolved by the Copilot extension runtime, and SQLite uses Node.js's built-in
 `node:sqlite` module.
 
@@ -82,6 +79,7 @@ resolved by the Copilot extension runtime, and SQLite uses Node.js's built-in
 
 ## Development
 
-Install or clone the repository as a user extension, edit the `.mjs` files, and
-reload extensions. Avoid writing to stdout from extension code because stdout is
-reserved for JSON-RPC.
+Edit the `.mjs` files under
+`com.github.copilot/extensions/usage-insights/` and reinstall the plugin when
+testing package changes. Avoid writing to stdout from extension code because
+stdout is reserved for JSON-RPC.
