@@ -1,3 +1,191 @@
+export function dailyTokenLevel(value, maximum) {
+    const amount = Number(value);
+    const max = Number(maximum);
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(max) || max <= 0) {
+        return 0;
+    }
+    const ratio = amount / max;
+    if (ratio <= 0.25) {
+        return 1;
+    }
+    if (ratio <= 0.5) {
+        return 2;
+    }
+    if (ratio <= 0.75) {
+        return 3;
+    }
+    return 4;
+}
+
+function dailyDateParts(date) {
+    const [year, month, day] = String(date).split("-").map(Number);
+    return { day, month, year };
+}
+
+function dailyDateFromKey(date) {
+    const { day, month, year } = dailyDateParts(date);
+    return new Date(year, month - 1, day);
+}
+
+function monthLabelForDate(date) {
+    const { month, year } = dailyDateParts(date);
+    const monthName = new Intl.DateTimeFormat(undefined, { month: "short" }).format(
+        new Date(year, month - 1, 1),
+    );
+    return month === 1 ? `${monthName} ${String(year).slice(-2)}` : monthName;
+}
+
+export function buildCalendarSizing(inlineSize, weekCount, focusPadding = 4) {
+    const width = Number(inlineSize);
+    const columns = Math.max(0, Math.floor(Number(weekCount) || 0));
+    const edgePadding = Number.isFinite(Number(focusPadding))
+        ? Math.max(0, Number(focusPadding))
+        : 4;
+    const availableWidth = Number.isFinite(width)
+        ? Math.max(0, width - edgePadding * 2)
+        : 0;
+    const maximumWidth = columns * 12 + Math.max(0, columns - 1) * 3;
+    const scale = maximumWidth
+        ? Math.min(1, availableWidth / maximumWidth)
+        : 0;
+    const cell = 12 * scale;
+    const gap = columns > 1 ? 3 * scale : 0;
+    const contentWidth = columns * cell + Math.max(0, columns - 1) * gap;
+    return {
+        availableWidth,
+        cell,
+        contentWidth,
+        edgePadding,
+        gap,
+        maximumWidth,
+        pitch: cell + gap,
+        scale,
+    };
+}
+
+export function buildCalendarLayout(
+    days = [],
+    { cell = 12, gap = 3, availableWidth = Infinity, labelWidths = {} } = {},
+) {
+    if (!days.length) {
+        return {
+            cells: [],
+            firstWeekday: 0,
+            leadingPadding: 0,
+            monthLabels: [],
+            trailingPadding: 0,
+            weekCount: 0,
+        };
+    }
+
+    const cellSize = Math.max(0, Number(cell) || 0);
+    const gapSize = Math.max(0, Number(gap) || 0);
+    const pitch = cellSize + gapSize;
+    const labelEnd = Number.isFinite(Number(availableWidth))
+        ? Math.max(0, Number(availableWidth))
+        : Infinity;
+    const firstWeekday = Number(days[0].weekday) || 0;
+    const weekCount = Math.ceil((firstWeekday + days.length) / 7);
+    const cells = days.map((day, index) => {
+        const slot = firstWeekday + index;
+        return {
+            ...day,
+            column: Math.floor(slot / 7),
+            index,
+            row: slot % 7,
+        };
+    });
+
+    const monthLabels = [];
+    let nextAvailableX = -1;
+    let previousMonth;
+    for (const cell of cells) {
+        const monthKey = cell.date.slice(0, 7);
+        if (monthKey === previousMonth) {
+            continue;
+        }
+        previousMonth = monthKey;
+        const label = monthLabelForDate(cell.date);
+        const measuredWidth = Number(labelWidths[label] ?? labelWidths["*"]);
+        const labelWidth = Number.isFinite(measuredWidth)
+            ? Math.max(0, measuredWidth)
+            : label.length * 7;
+        const left = cell.column * pitch;
+        if (left < nextAvailableX || left + labelWidth > labelEnd) {
+            continue;
+        }
+        monthLabels.push({
+            column: cell.column,
+            date: cell.date,
+            label,
+            left,
+            width: labelWidth,
+        });
+        nextAvailableX = left + labelWidth;
+    }
+
+    return {
+        cells,
+        firstWeekday,
+        leadingPadding: firstWeekday,
+        monthLabels,
+        trailingPadding: weekCount * 7 - firstWeekday - days.length,
+        weekCount,
+    };
+}
+
+export function dailyTokenNavigation(days, index, key, { ctrlKey = false } = {}) {
+    if (!Array.isArray(days) || !days.length || index < 0 || index >= days.length) {
+        return null;
+    }
+    if (ctrlKey && key === "Home") {
+        return 0;
+    }
+    if (ctrlKey && key === "End") {
+        return days.length - 1;
+    }
+
+    const layout = buildCalendarLayout(days);
+    const slot = layout.firstWeekday + index;
+    const column = Math.floor(slot / 7);
+    let target;
+    switch (key) {
+        case "ArrowLeft":
+            target = index - 7;
+            break;
+        case "ArrowRight":
+            target = index + 7;
+            break;
+        case "ArrowUp":
+            target = index - 1;
+            break;
+        case "ArrowDown":
+            target = index + 1;
+            break;
+        case "Home":
+            target = column * 7 - layout.firstWeekday;
+            break;
+        case "End":
+            target = column * 7 + 6 - layout.firstWeekday;
+            break;
+        default:
+            return null;
+    }
+    return Math.max(0, Math.min(days.length - 1, target));
+}
+
+const dailyCalendarBrowserHelpers = [
+    dailyTokenLevel,
+    dailyDateParts,
+    dailyDateFromKey,
+    monthLabelForDate,
+    buildCalendarSizing,
+    buildCalendarLayout,
+    dailyTokenNavigation,
+]
+    .map((helper) => helper.toString())
+    .join("\n\n");
+
 function safeJson(value) {
     return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
@@ -31,6 +219,11 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
       --slate: #667080;
       --red: #c75c5c;
       --violet: #6b63d8;
+      --heatmap-0: color-mix(in srgb, var(--text) 8%, transparent);
+      --heatmap-1: #b9dfbf;
+      --heatmap-2: #80bd8c;
+      --heatmap-3: #4b9d61;
+      --heatmap-4: #2f7d46;
     }
 
     * { box-sizing: border-box; }
@@ -187,6 +380,301 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
     .color-3 { background: var(--blue); }
     .color-4 { background: var(--red); }
     .color-5 { background: var(--violet); }
+
+    .daily-scope {
+      margin-top: 3px;
+    }
+
+    .daily-summary {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 4px 12px;
+      color: var(--muted);
+      font-size: var(--text-body-small, 12px);
+      text-align: right;
+    }
+
+    .daily-summary strong {
+      color: var(--text);
+      font-size: var(--text-title-small, 16px);
+      font-weight: var(--font-weight-semibold, 600);
+    }
+
+    .daily-summary span {
+      white-space: nowrap;
+    }
+
+    .daily-status {
+      margin: -3px 0 12px;
+      color: var(--muted);
+      font-size: var(--text-body-small, 12px);
+    }
+
+    .daily-status[data-state="stale"],
+    .daily-status[data-state="unavailable"] {
+      color: var(--danger);
+    }
+
+    .daily-calendar-layout {
+      --daily-cell: 12px;
+      --daily-gap: 3px;
+      --daily-pitch: calc(var(--daily-cell) + var(--daily-gap));
+      --daily-focus-padding: 4px;
+      --daily-content-width: 100%;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .daily-weekday-labels {
+      display: grid;
+      grid-template-rows: 18px auto;
+      row-gap: 0;
+      align-items: start;
+      padding-top: 1px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1;
+      text-align: right;
+    }
+
+    .daily-weekday-grid {
+      display: grid;
+      grid-template-rows: repeat(7, var(--daily-cell));
+      row-gap: var(--daily-gap);
+      align-items: center;
+    }
+
+    .daily-weekday-labels span {
+      min-height: var(--daily-cell);
+      line-height: var(--daily-cell);
+    }
+
+    .daily-calendar-track {
+      min-width: 0;
+      overflow: visible;
+      padding: 1px var(--daily-focus-padding) 7px;
+    }
+
+    .daily-calendar-inner {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .daily-month-labels {
+      position: relative;
+      height: 18px;
+      width: var(--daily-content-width);
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 14px;
+      white-space: nowrap;
+    }
+
+    .daily-month-label {
+      position: absolute;
+      top: 0;
+      white-space: nowrap;
+    }
+
+    .daily-grid {
+      display: grid;
+      grid-template-rows: repeat(7, var(--daily-cell));
+      row-gap: var(--daily-gap);
+      width: var(--daily-content-width);
+      min-width: 0;
+    }
+
+    .daily-grid-row {
+      display: grid;
+      grid-template-columns: repeat(var(--daily-week-count), var(--daily-cell));
+      column-gap: var(--daily-gap);
+      width: var(--daily-content-width);
+      min-width: 0;
+    }
+
+    .daily-grid-cell {
+      display: grid;
+      place-items: center;
+      width: var(--daily-cell);
+      height: var(--daily-cell);
+    }
+
+    .daily-day-button {
+      width: var(--daily-cell);
+      height: var(--daily-cell);
+      min-width: var(--daily-cell);
+      border: 1px solid transparent;
+      border-radius: 3px;
+      padding: 0;
+      background: var(--heatmap-0);
+      color: transparent;
+      cursor: pointer;
+    }
+
+    .daily-day-button:hover {
+      border-color: color-mix(in srgb, var(--text) 38%, transparent);
+    }
+
+    .daily-day-button[data-level="0"] { background: var(--heatmap-0); }
+    .daily-day-button[data-level="1"] { background: var(--heatmap-1); }
+    .daily-day-button[data-level="2"] { background: var(--heatmap-2); }
+    .daily-day-button[data-level="3"] { background: var(--heatmap-3); }
+    .daily-day-button[data-level="4"] { background: var(--heatmap-4); }
+
+    .daily-day-button[data-selected="true"] {
+      border-color: var(--text);
+      box-shadow: 0 0 0 1px var(--canvas);
+    }
+
+    .daily-day-button[tabindex="0"] {
+      outline: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
+      outline-offset: 2px;
+    }
+
+    .daily-day-button:focus-visible {
+      outline: 2px solid var(--color-focus-outline, var(--accent));
+      outline-offset: 3px;
+    }
+
+    .daily-detail {
+      display: grid;
+      gap: 10px;
+      min-height: 92px;
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--row);
+    }
+
+    .daily-detail-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .daily-detail-heading strong {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .daily-detail-heading span {
+      color: var(--muted);
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .daily-detail-copy {
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--text-body-small, 12px);
+    }
+
+    .daily-detail-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px 18px;
+      margin: 0;
+      min-width: 0;
+    }
+
+    .daily-detail-item {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: var(--text-body-small, 12px);
+    }
+
+    .daily-detail-item dt,
+    .daily-detail-item dd {
+      margin: 0;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .daily-detail-item dt {
+      flex: 1 1 8rem;
+    }
+
+    .daily-detail-item dd {
+      flex: 0 1 auto;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    @media (max-width: 420px) {
+      .daily-detail-list {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .daily-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: var(--text-body-small, 12px);
+    }
+
+    .daily-legend {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 5px;
+    }
+
+    .daily-legend-label {
+      margin-inline: 2px 3px;
+    }
+
+    .daily-legend-swatch {
+      width: 12px;
+      height: 12px;
+      border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+      border-radius: 3px;
+    }
+
+    .daily-legend-swatch[data-level="0"] { background: var(--heatmap-0); }
+    .daily-legend-swatch[data-level="1"] { background: var(--heatmap-1); }
+    .daily-legend-swatch[data-level="2"] { background: var(--heatmap-2); }
+    .daily-legend-swatch[data-level="3"] { background: var(--heatmap-3); }
+    .daily-legend-swatch[data-level="4"] { background: var(--heatmap-4); }
+
+    .daily-unavailable {
+      min-height: 106px;
+      padding: 30px 18px;
+      border-radius: 10px;
+      background: var(--row);
+      color: var(--muted);
+      text-align: center;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --heatmap-1: #183b28;
+        --heatmap-2: #21643a;
+        --heatmap-3: #2d8a4d;
+        --heatmap-4: #42b866;
+      }
+    }
 
     .collapsible {
       width: 100%;
@@ -479,6 +967,9 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
       .history-stat:nth-child(3) { border-left: 0; }
       .history-stat:nth-child(n+3) { border-top: 1px solid var(--rule); }
       .section-head { flex-direction: column; }
+      .daily-summary { justify-content: flex-start; text-align: left; }
+      .daily-footer { align-items: flex-start; flex-direction: column; }
+      .daily-legend { justify-content: flex-start; }
       .chart { height: 210px; }
       .chart svg { height: 180px; }
     }
@@ -487,6 +978,7 @@ export function renderDashboardHtml({ instanceId, defaults, initialData }) {
       .button span { display: none; }
       .history-summary { grid-template-columns: 1fr; }
       .history-stat + .history-stat { border-left: 0; border-top: 1px solid var(--rule); }
+      .daily-detail-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .footer { flex-direction: column; }
     }
   </style>
@@ -556,6 +1048,58 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       <div class="bar-list" id="tokenBars"></div>
     </section>
 
+    <section class="section" aria-labelledby="dailyTokensHeading">
+      <div class="section-head">
+        <div>
+          <h2 id="dailyTokensHeading">Daily token usage</h2>
+          <p class="daily-scope" id="dailyTokensScope">All local sessions · Past 365 days · Local time</p>
+        </div>
+        <div class="daily-summary" aria-label="Daily token usage summary">
+          <strong id="dailyTokensTotal">—</strong>
+          <span>tokens</span>
+          <span>·</span>
+          <span id="dailyTokensActive">— active days</span>
+        </div>
+      </div>
+      <p class="daily-status" id="dailyStatus" data-state="loading">Loading daily token usage...</p>
+      <div id="dailyCalendarContent">
+        <div class="daily-calendar-layout" id="dailyCalendarLayout">
+          <div class="daily-weekday-labels" aria-hidden="true">
+            <span></span>
+            <div class="daily-weekday-grid">
+              <span>Sun</span>
+              <span></span>
+              <span>Mon</span>
+              <span></span>
+              <span>Wed</span>
+              <span></span>
+              <span>Fri</span>
+            </div>
+          </div>
+          <div class="daily-calendar-track" id="dailyCalendarTrack">
+            <div class="daily-calendar-inner" id="dailyCalendarInner">
+              <div class="daily-month-labels" id="dailyMonthLabels" aria-hidden="true"></div>
+              <div class="daily-grid" id="dailyGrid" role="grid" aria-label="Daily token usage calendar"></div>
+            </div>
+          </div>
+        </div>
+        <div class="daily-detail" id="dailyDetail" role="region" aria-label="Selected day details">
+          <div class="daily-detail-heading">
+            <strong id="dailyDetailDate">Today</strong>
+            <span id="dailyDetailTotal">— tokens</span>
+          </div>
+          <p class="daily-detail-copy" id="dailyDetailCopy">Loading daily token usage...</p>
+          <dl class="daily-detail-list" id="dailyDetailList"></dl>
+        </div>
+        <div class="daily-footer">
+          <span>Input + output tokens</span>
+          <div class="daily-legend" id="dailyLegend" aria-label="Intensity relative to the busiest day"></div>
+        </div>
+        <div id="dailyAnnouncement" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;"></div>
+      </div>
+      <div class="daily-unavailable" id="dailyUnavailable" hidden></div>
+    </section>
+
     <section class="section" aria-labelledby="historyHeading">
       <div class="section-head">
         <div>
@@ -594,6 +1138,14 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       sessionId: initial.sessionId || '',
       loading: false,
       latestData: null,
+      dailyData: null,
+      dailySelectedDate: null,
+      dailyFocusedDate: null,
+      dailyPreviewDate: null,
+      dailyLayout: null,
+      dailyLayoutSignature: '',
+      dailyCellByDate: new Map(),
+      dailyDayByDate: new Map(),
     };
 
     const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -603,8 +1155,22 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     const chartToggle = document.getElementById('chartToggle');
     const chartContent = document.getElementById('chartContent');
     const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+    const exactNumberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
     const compactFormat = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 2 });
     const creditFormat = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+    const dailyDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'long' });
+    const dailyCalendarContent = document.getElementById('dailyCalendarContent');
+    const dailyCalendarLayout = document.getElementById('dailyCalendarLayout');
+    const dailyCalendarTrack = document.getElementById('dailyCalendarTrack');
+    const dailyGrid = document.getElementById('dailyGrid');
+    const dailyMonthLabels = document.getElementById('dailyMonthLabels');
+    const dailyStatus = document.getElementById('dailyStatus');
+    const dailyUnavailable = document.getElementById('dailyUnavailable');
+    const dailyAnnouncement = document.getElementById('dailyAnnouncement');
+
+    /* shared daily calendar helpers */
+    ${dailyCalendarBrowserHelpers}
+    /* end shared daily calendar helpers */
 
     function formatNumber(value) {
       const amount = Number(value || 0);
@@ -782,6 +1348,313 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       }
     }
 
+    function dailyExactNumber(value) {
+      return exactNumberFormat.format(Number(value || 0));
+    }
+
+    function dailyAccessibleName(day) {
+      return dailyDateFormat.format(dailyDateFromKey(day.date)) + ': ' +
+        dailyExactNumber(day.totalTokens) + ' tokens; ' +
+        dailyExactNumber(day.calls) + ' calls';
+    }
+
+    function dailyDayCopy(day) {
+      if (day.totalTokens > 0) {
+        return 'Input + output make up total tokens. Reasoning and cache values are reported separately.';
+      }
+      if (day.calls > 0) {
+        return 'Calls were recorded, but no input or output tokens were recorded.';
+      }
+      return 'No recorded token usage.';
+    }
+
+    function setDailyStatus(message, stateName) {
+      dailyStatus.textContent = message || '';
+      dailyStatus.hidden = !message;
+      if (stateName) dailyStatus.dataset.state = stateName;
+      else delete dailyStatus.dataset.state;
+    }
+
+    function renderDailyDetails(day, announce) {
+      if (!day) return;
+      const todayLabel = state.dailyData && day.date === state.dailyData.endDate ? ' · Today' : '';
+      text('dailyDetailDate', dailyDateFormat.format(dailyDateFromKey(day.date)) + todayLabel);
+      text('dailyDetailTotal', dailyExactNumber(day.totalTokens) + ' tokens');
+      text('dailyDetailCopy', dailyDayCopy(day));
+      const list = document.getElementById('dailyDetailList');
+      list.replaceChildren();
+      [
+        ['Input', day.inputTokens],
+        ['Output', day.outputTokens],
+        ['Reasoning (reported separately)', day.reasoningTokens],
+        ['Cache read (reported separately)', day.cacheReadTokens],
+        ['Cache write (reported separately)', day.cacheWriteTokens],
+        ['Calls', day.calls],
+      ].forEach((entry) => {
+        const item = element('div', 'daily-detail-item');
+        item.append(element('dt', '', entry[0]));
+        item.append(element('dd', '', dailyExactNumber(entry[1])));
+        list.append(item);
+      });
+      if (announce) {
+        dailyAnnouncement.textContent = dailyAccessibleName(day);
+      }
+    }
+
+    function renderDailyLegend(maximum) {
+      const legend = document.getElementById('dailyLegend');
+      legend.replaceChildren();
+      legend.append(element('span', 'daily-legend-label', 'Less'));
+      const bounds = [
+        'No recorded token usage (0 tokens)',
+        'More than 0 and up to 25% of busiest day (' + dailyExactNumber(Number(maximum || 0) * .25) + ' tokens)',
+        'More than 25% and up to 50% of busiest day (' + dailyExactNumber(Number(maximum || 0) * .5) + ' tokens)',
+        'More than 50% and up to 75% of busiest day (' + dailyExactNumber(Number(maximum || 0) * .75) + ' tokens)',
+        'More than 75% of busiest day (maximum ' + dailyExactNumber(maximum) + ' tokens)',
+      ];
+      bounds.forEach((label, level) => {
+        const swatch = element('span', 'daily-legend-swatch');
+        swatch.dataset.level = String(level);
+        swatch.setAttribute('role', 'img');
+        swatch.setAttribute('aria-label', label);
+        swatch.title = label;
+        legend.append(swatch);
+      });
+      legend.append(element('span', 'daily-legend-label', 'More'));
+    }
+
+    function updateDailyButton(button, day, maximum) {
+      if (!button) return;
+      button.dataset.level = String(dailyTokenLevel(day.totalTokens, maximum));
+      button.dataset.selected = String(day.date === state.dailySelectedDate);
+      button.tabIndex = day.date === state.dailyFocusedDate ? 0 : -1;
+      button.setAttribute('aria-label', dailyAccessibleName(day));
+      button.title = dailyAccessibleName(day);
+    }
+
+    function previewDailyDate(date) {
+      if (!state.dailyDayByDate.has(date)) return;
+      state.dailyPreviewDate = date;
+      renderDailyDetails(state.dailyDayByDate.get(date), false);
+    }
+
+    function clearDailyPreview() {
+      if (!state.dailyPreviewDate) return;
+      state.dailyPreviewDate = null;
+      renderDailyDetails(state.dailyDayByDate.get(state.dailySelectedDate), false);
+    }
+
+    function commitDailyDate(date) {
+      const day = state.dailyDayByDate.get(date);
+      if (!day) return;
+      state.dailySelectedDate = date;
+      state.dailyPreviewDate = null;
+      for (const [candidateDate, button] of state.dailyCellByDate) {
+        button.dataset.selected = String(candidateDate === date);
+      }
+      renderDailyDetails(day, true);
+    }
+
+    function focusDailyDate(date, focus = true) {
+      const button = state.dailyCellByDate.get(date);
+      if (!button) return;
+      state.dailyFocusedDate = date;
+      for (const [candidateDate, candidateButton] of state.dailyCellByDate) {
+        candidateButton.tabIndex = candidateDate === date ? 0 : -1;
+      }
+      if (focus) {
+        button.focus({ preventScroll: true });
+      }
+    }
+
+    function attachDailyButtonEvents(button) {
+      button.addEventListener('mouseenter', () => previewDailyDate(button.dataset.date));
+      button.addEventListener('focus', () => {
+        state.dailyFocusedDate = button.dataset.date;
+        previewDailyDate(button.dataset.date);
+        for (const [date, candidate] of state.dailyCellByDate) {
+          candidate.tabIndex = date === state.dailyFocusedDate ? 0 : -1;
+        }
+      });
+      button.addEventListener('click', () => commitDailyDate(button.dataset.date));
+      button.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          commitDailyDate(button.dataset.date);
+          return;
+        }
+        const days = state.dailyData?.days || [];
+        const index = days.findIndex((day) => day.date === button.dataset.date);
+        const target = dailyTokenNavigation(days, index, event.key, {
+          ctrlKey: event.ctrlKey || event.metaKey,
+        });
+        if (target === null) return;
+        event.preventDefault();
+        focusDailyDate(days[target].date);
+      });
+    }
+
+    function measureDailyMonthLabelWidths(days) {
+      const widths = {};
+      const measured = new Set();
+      dailyMonthLabels.replaceChildren();
+      for (const day of days) {
+        const labelText = monthLabelForDate(day.date);
+        if (measured.has(labelText)) continue;
+        measured.add(labelText);
+        const probe = element('span', 'daily-month-label', labelText);
+        probe.style.left = '0px';
+        probe.style.visibility = 'hidden';
+        dailyMonthLabels.append(probe);
+        const width = probe.getBoundingClientRect().width;
+        widths[labelText] = width > 0 ? width : labelText.length * 7;
+        probe.remove();
+      }
+      return widths;
+    }
+
+    function renderDailyMonthLabels(labels) {
+      dailyMonthLabels.replaceChildren();
+      for (const month of labels) {
+        const label = element('span', 'daily-month-label', month.label);
+        label.style.left = month.left + 'px';
+        dailyMonthLabels.append(label);
+      }
+    }
+
+    function resizeDailyCalendar() {
+      if (!state.dailyData || !state.dailyLayout) return;
+      const styles = getComputedStyle(dailyCalendarLayout);
+      const focusPadding = Number.parseFloat(
+        styles.getPropertyValue('--daily-focus-padding'),
+      ) || 0;
+      const sizing = buildCalendarSizing(
+        dailyCalendarTrack.clientWidth,
+        state.dailyLayout.weekCount,
+        focusPadding,
+      );
+      dailyCalendarLayout.style.setProperty('--daily-cell', sizing.cell + 'px');
+      dailyCalendarLayout.style.setProperty('--daily-gap', sizing.gap + 'px');
+      dailyCalendarLayout.style.setProperty('--daily-pitch', sizing.pitch + 'px');
+      dailyCalendarLayout.style.setProperty('--daily-content-width', sizing.contentWidth + 'px');
+      const sizedLayout = buildCalendarLayout(state.dailyData.days, {
+        availableWidth: sizing.contentWidth,
+        cell: sizing.cell,
+        gap: sizing.gap,
+        labelWidths: measureDailyMonthLabelWidths(state.dailyData.days),
+      });
+      renderDailyMonthLabels(sizedLayout.monthLabels);
+    }
+
+    function buildDailyCalendar(layout, days) {
+      state.dailyCellByDate = new Map();
+      renderDailyMonthLabels([]);
+      dailyGrid.replaceChildren();
+      dailyCalendarLayout.style.setProperty('--daily-week-count', String(layout.weekCount));
+      dailyGrid.setAttribute('aria-rowcount', '7');
+      dailyGrid.setAttribute('aria-colcount', String(layout.weekCount));
+
+      for (let rowIndex = 0; rowIndex < 7; rowIndex += 1) {
+        const row = element('div', 'daily-grid-row');
+        row.setAttribute('role', 'row');
+        row.setAttribute('aria-rowindex', String(rowIndex + 1));
+        for (let column = 0; column < layout.weekCount; column += 1) {
+          const cell = element('div', 'daily-grid-cell');
+          cell.setAttribute('role', 'gridcell');
+          cell.setAttribute('aria-colindex', String(column + 1));
+          const index = column * 7 + rowIndex - layout.firstWeekday;
+          if (index >= 0 && index < days.length) {
+            const day = days[index];
+            const button = element('button', 'daily-day-button');
+            button.type = 'button';
+            button.dataset.date = day.date;
+            attachDailyButtonEvents(button);
+            cell.append(button);
+            state.dailyCellByDate.set(day.date, button);
+          } else {
+            cell.setAttribute('aria-hidden', 'true');
+          }
+          row.append(cell);
+        }
+        dailyGrid.append(row);
+      }
+    }
+
+    function renderDailyTokens(dailyTokens) {
+      if (!dailyTokens || !Array.isArray(dailyTokens.days)) {
+        if (!state.dailyData) {
+          dailyCalendarContent.hidden = true;
+          dailyUnavailable.hidden = false;
+          dailyUnavailable.textContent = 'Daily token usage is unavailable.';
+          text('dailyTokensTotal', '—');
+          text('dailyTokensActive', '— active days');
+          setDailyStatus('', '');
+        } else {
+          setDailyStatus('Daily token usage is unavailable; showing the last successful data.', 'unavailable');
+        }
+        return;
+      }
+      const days = dailyTokens.days;
+      const layout = buildCalendarLayout(days);
+      const calendarHadFocus = dailyCalendarContent.contains(document.activeElement);
+      const signature = dailyTokens.startDate + '|' + dailyTokens.endDate + '|' + layout.weekCount;
+      if (signature !== state.dailyLayoutSignature) {
+        buildDailyCalendar(layout, days);
+        state.dailyLayoutSignature = signature;
+      }
+
+      state.dailyData = dailyTokens;
+      state.dailyLayout = layout;
+      state.dailyDayByDate = new Map(days.map((day) => [day.date, day]));
+      if (!state.dailySelectedDate || !state.dailyDayByDate.has(state.dailySelectedDate)) {
+        state.dailySelectedDate = dailyTokens.endDate;
+      }
+      if (!state.dailyFocusedDate || !state.dailyDayByDate.has(state.dailyFocusedDate)) {
+        state.dailyFocusedDate = dailyTokens.endDate;
+      }
+      if (state.dailyPreviewDate && !state.dailyDayByDate.has(state.dailyPreviewDate)) {
+        state.dailyPreviewDate = null;
+      }
+
+      dailyCalendarContent.hidden = false;
+      dailyUnavailable.hidden = true;
+      resizeDailyCalendar();
+      for (const day of days) {
+        updateDailyButton(state.dailyCellByDate.get(day.date), day, dailyTokens.maxDailyTokens);
+      }
+      text('dailyTokensTotal', formatNumber(dailyTokens.totalTokens));
+      text('dailyTokensActive', formatNumber(dailyTokens.activeDays) + ' active days');
+      text('dailyTokensScope', 'All local sessions · Past 365 days · ' + (dailyTokens.timeZone || 'Local time'));
+      renderDailyLegend(dailyTokens.maxDailyTokens);
+      renderDailyDetails(
+        state.dailyDayByDate.get(state.dailyPreviewDate || state.dailySelectedDate),
+        false,
+      );
+      if (dailyTokens.totalTokens === 0) {
+        setDailyStatus('No token usage recorded in the past 365 days.', 'empty');
+      } else {
+        setDailyStatus('', '');
+      }
+      if (calendarHadFocus) {
+        state.dailyCellByDate.get(state.dailyFocusedDate)?.focus({ preventScroll: true });
+      }
+    }
+
+    function markDailyStale(error) {
+      if (state.dailyData) {
+        setDailyStatus(
+          'Daily token usage is unavailable; showing the last successful data.',
+          'stale',
+        );
+      } else {
+        dailyCalendarContent.hidden = true;
+        dailyUnavailable.hidden = false;
+        dailyUnavailable.textContent = 'Daily token usage is unavailable: ' +
+          (error instanceof Error ? error.message : 'Unable to load daily usage.');
+        setDailyStatus('Daily token usage is unavailable.', 'unavailable');
+      }
+    }
+
     function renderRangeControl(data) {
       const control = document.getElementById('rangeControl');
       control.replaceChildren();
@@ -848,6 +1721,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       renderCreditChart(selected);
       renderAgentBars(selected);
       renderTokenBars(totals);
+      renderDailyTokens(data.dailyTokens);
       renderRangeControl(data);
       renderHistory(data.range);
     }
@@ -878,6 +1752,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         if (controller.signal.aborted) return;
         errorState.textContent = error instanceof Error ? error.message : 'Unable to load session metrics.';
         errorState.hidden = false;
+        markDailyStale(error);
         text('liveStatus', 'Unavailable');
       } finally {
         if (loadController === controller) {
@@ -906,6 +1781,17 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         candidate.setAttribute('aria-pressed', String(candidate === button));
       }
       if (state.latestData) renderAgentBars(state.latestData.selected);
+    });
+
+    const dailyCalendarResizeObserver = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(() => resizeDailyCalendar())
+      : null;
+    dailyCalendarResizeObserver?.observe(dailyCalendarTrack);
+    dailyCalendarTrack.addEventListener('mouseleave', clearDailyPreview);
+    dailyCalendarContent.addEventListener('focusout', (event) => {
+      if (!event.relatedTarget || !dailyGrid.contains(event.relatedTarget)) {
+        clearDailyPreview();
+      }
     });
 
     const events = new EventSource('/events?token=' + encodeURIComponent(initial.capabilityToken));

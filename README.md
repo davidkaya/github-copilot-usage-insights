@@ -8,9 +8,28 @@ A GitHub Copilot canvas extension for inspecting local session usage:
 - model-call counts and durations
 - recent and all-session aggregates
 - highest-cost local sessions with in-canvas drill-down
+- a GitHub contribution-style daily token heatmap for the past 365 local calendar days
 
 The interface follows GitHub Copilot's native visual language and refreshes while
 the canvas is open.
+
+## Daily token usage
+
+The **Daily token usage** calendar is global to the local Copilot data. It
+includes root-agent and sub-agent usage from every locally recorded session,
+regardless of the selected session or the **Session history** range. The window
+contains exactly 365 local calendar dates, including today, and the local
+timezone name is shown beside the scope.
+
+Daily totals are **input tokens + output tokens**. Reasoning, cache-read, and
+cache-write values are shown separately in the selected-day details and are not
+added to that total. Empty cells mean no locally recorded token usage for that
+date; they do not claim that cloud or unavailable history is complete. The
+calendar's green intensity is relative to the busiest day in the displayed
+365-day window. Select or focus a date to inspect its exact values, including
+calls. The full Sunday-first, seven-row calendar stays in one strip at every
+supported width by scaling its square cells and gaps to the available space;
+it does not require horizontal scrolling.
 
 ## Privacy
 
@@ -83,3 +102,9 @@ Edit the `.mjs` files under
 `com.github.copilot/extensions/usage-insights/` and reinstall the plugin when
 testing package changes. Avoid writing to stdout from extension code because
 stdout is reserved for JSON-RPC.
+
+Run the focused unit and renderer checks from the repository root:
+
+```powershell
+node --test .\com.github.copilot\extensions\usage-insights\stats.test.mjs .\com.github.copilot\extensions\usage-insights\renderer.test.mjs
+```

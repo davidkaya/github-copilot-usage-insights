@@ -10,6 +10,8 @@ const RANGE_LABELS = {
     "30d": "Last 30 days",
     all: "All recorded usage",
 };
+const DAILY_TOKEN_DAY_COUNT = 365;
+const DAILY_TOKEN_CACHE_MAX_AGE_MS = 5_000;
 
 function number(value) {
     return Number(value || 0);
@@ -28,6 +30,104 @@ function timestampMs(value) {
         ? `${timestamp.replace(" ", "T")}Z`
         : timestamp;
     return Date.parse(normalized);
+}
+
+export function localDateKey(date) {
+    if (!(date instanceof Date) || !Number.isFinite(date.getTime())) {
+        throw new Error("Cannot format an invalid local date.");
+    }
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function resolvedLocalTimeZone() {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Local time";
+}
+
+export function createDailyTokenWindow(now = new Date()) {
+    if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+        throw new Error("Cannot create a daily token window from an invalid time.");
+    }
+
+    const end = new Date(now.getTime());
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    start.setDate(start.getDate() - (DAILY_TOKEN_DAY_COUNT - 1));
+    return {
+        dayCount: DAILY_TOKEN_DAY_COUNT,
+        end,
+        endDate: localDateKey(end),
+        start,
+        startDate: localDateKey(start),
+        timeZone: resolvedLocalTimeZone(),
+    };
+}
+
+function emptyDailyTokenDay(date) {
+    const [year, month, day] = date.split("-").map(Number);
+    const localDate = new Date(year, month - 1, day);
+    return {
+        calls: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        date,
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+        weekday: localDate.getDay(),
+    };
+}
+
+export function buildDailyTokenUsage(rows, now = new Date()) {
+    const window = createDailyTokenWindow(now);
+    const days = [];
+    const byDate = new Map();
+    const cursor = new Date(window.start.getTime());
+
+    for (let index = 0; index < window.dayCount; index += 1) {
+        const day = emptyDailyTokenDay(localDateKey(cursor));
+        days.push(day);
+        byDate.set(day.date, day);
+        cursor.setDate(cursor.getDate() + 1);
+    }
+
+    const startMs = window.start.getTime();
+    const endMs = window.end.getTime();
+    for (const row of rows || []) {
+        const rawTimestamp = row?.created_at ?? row?.createdAt ?? row?.timestamp;
+        const eventMs = timestampMs(rawTimestamp);
+        if (!Number.isFinite(eventMs)) {
+            throw new Error(`Invalid usage event timestamp: ${String(rawTimestamp)}`);
+        }
+        if (eventMs < startMs || eventMs > endMs) {
+            continue;
+        }
+
+        const day = byDate.get(localDateKey(new Date(eventMs)));
+        if (!day) {
+            continue;
+        }
+        day.calls += 1;
+        day.inputTokens += number(row?.input_tokens ?? row?.inputTokens);
+        day.outputTokens += number(row?.output_tokens ?? row?.outputTokens);
+        day.reasoningTokens += number(row?.reasoning_tokens ?? row?.reasoningTokens);
+        day.cacheReadTokens += number(row?.cache_read_tokens ?? row?.cacheReadTokens);
+        day.cacheWriteTokens += number(row?.cache_write_tokens ?? row?.cacheWriteTokens);
+        day.totalTokens = day.inputTokens + day.outputTokens;
+    }
+
+    const totalTokens = days.reduce((sum, day) => sum + day.totalTokens, 0);
+    return {
+        activeDays: days.filter((day) => day.totalTokens > 0).length,
+        dayCount: window.dayCount,
+        days,
+        endDate: window.endDate,
+        maxDailyTokens: Math.max(0, ...days.map((day) => day.totalTokens)),
+        metric: "input-output",
+        startDate: window.startDate,
+        timeZone: window.timeZone,
+        totalTokens,
+    };
 }
 
 function normalizeTimestamp(value) {
@@ -195,6 +295,7 @@ export class UsageInsightsStore {
         this.appDb = existsSync(appDbPath)
             ? new DatabaseSync(appDbPath, { readOnly: true })
             : undefined;
+        this.dailyTokensCache = undefined;
         this.appSessionColumns = new Set(
             this.appDb
                 ?.prepare("PRAGMA table_info(sessions)")
@@ -237,6 +338,62 @@ export class UsageInsightsStore {
             `)
             .get(...params);
         return normalizeAggregate(row);
+    }
+
+    getDailyTokens(now = new Date()) {
+        const window = createDailyTokenWindow(now);
+        let dataVersionRow;
+        try {
+            dataVersionRow = this.sessionDb.prepare("PRAGMA data_version").get() || {};
+        } catch (error) {
+            this.dailyTokensCache = undefined;
+            throw error;
+        }
+        const dataVersion = Number(
+            dataVersionRow.data_version ?? Object.values(dataVersionRow)[0] ?? 0,
+        );
+        const timeZone = window.timeZone;
+        const utcOffset = now.getTimezoneOffset();
+        const cache = this.dailyTokensCache;
+        const cacheAge = now.getTime() - (cache?.cachedAt ?? Number.NaN);
+        const cacheMatches =
+            cache &&
+            cacheAge >= 0 &&
+            cacheAge < DAILY_TOKEN_CACHE_MAX_AGE_MS &&
+            cache.dataVersion === dataVersion &&
+            cache.startDate === window.startDate &&
+            cache.endDate === window.endDate &&
+            cache.timeZone === timeZone &&
+            cache.utcOffset === utcOffset;
+        if (cacheMatches) {
+            return cache.value;
+        }
+
+        this.dailyTokensCache = undefined;
+        const statement = this.sessionDb.prepare(`
+            SELECT
+                created_at,
+                input_tokens,
+                output_tokens,
+                reasoning_tokens,
+                cache_read_tokens,
+                cache_write_tokens
+            FROM assistant_usage_events
+            WHERE julianday(created_at) >= julianday(?)
+              AND julianday(created_at) <= julianday(?)
+        `);
+        const rows = statement.iterate(window.start.toISOString(), window.end.toISOString());
+        const value = buildDailyTokenUsage(rows, now);
+        this.dailyTokensCache = {
+            cachedAt: now.getTime(),
+            dataVersion,
+            endDate: window.endDate,
+            startDate: window.startDate,
+            timeZone,
+            utcOffset,
+            value,
+        };
+        return value;
     }
 
     getSessionInfo(sessionId) {
@@ -482,6 +639,7 @@ export class UsageInsightsStore {
         range,
         selectedSessionId,
         agentMetadata,
+        now = new Date(),
     }) {
         const dbTotals = this.queryAggregate("WHERE session_id = ?", [selectedSessionId]);
         const liveWindow =
@@ -499,7 +657,8 @@ export class UsageInsightsStore {
         return {
             aiCreditScale: BILLION,
             currentSessionId,
-            generatedAt: new Date().toISOString(),
+            dailyTokens: this.getDailyTokens(now),
+            generatedAt: now.toISOString(),
             range: this.getRange(range),
             ranges: Object.entries(RANGE_LABELS).map(([id, label]) => ({ id, label })),
             selected: {
